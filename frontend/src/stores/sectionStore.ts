@@ -10,6 +10,7 @@ import { createEmptySectionFilter, type SectionFilterState } from '@/types/secti
 import type { Vertical } from '@/types/vertical'
 import { buildRelativeDepths } from '@/types/vertical'
 import type { Point } from '@/types/point'
+import { checkSectionAdmission, type SectionAdmission } from '@/utils/admission'
 
 /** 垂线录入草稿（新增/编辑表单共享结构） */
 export interface VerticalDraft {
@@ -150,6 +151,26 @@ export const useSectionStore = defineStore('section', () => {
       }
     })
     return conflicts
+  }
+
+  /** 测次成果准入校核结果（按 sectionId 索引）：测法改动后随数据重算 */
+  const sectionAdmissions = computed<Record<string, SectionAdmission>>(() => {
+    const map: Record<string, SectionAdmission> = {}
+    sections.value.forEach((section) => {
+      map[section.id] = checkSectionAdmission(
+        section.id,
+        section.method,
+        verticals.value.filter((vertical) => vertical.sectionId === section.id),
+        points.value
+      )
+    })
+    return map
+  })
+
+  /** 某测次的准入校核结果 */
+  function admissionOfSection(sectionId: string | null | undefined): SectionAdmission | null {
+    if (!sectionId) return null
+    return sectionAdmissions.value[sectionId] ?? null
   }
 
   function patchFilter(patch: Partial<SectionFilterState>): void {
@@ -359,7 +380,9 @@ export const useSectionStore = defineStore('section', () => {
     pointsOfVertical,
     verticalStats,
     sectionVerticalCounts,
+    sectionAdmissions,
     findDistanceConflicts,
+    admissionOfSection,
     patchFilter,
     resetFilter,
     selectSection,

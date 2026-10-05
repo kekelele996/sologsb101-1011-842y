@@ -49,6 +49,27 @@ const exporting = ref(false)
 const compareRows = computed(() => ratingStore.compareRows)
 const overLimitRows = computed(() => ratingStore.overLimitRows)
 
+/** 测次成果准入校核清单：按测站列出各测次是否可出成果及待补测原因 */
+const admissionRows = computed(() =>
+  sectionStore.sections
+    .slice()
+    .sort((a, b) => Date.parse(b.measuredAt) - Date.parse(a.measuredAt))
+    .map((section) => {
+      const station = stationStore.stationById(section.stationId)
+      const admission = sectionStore.admissionOfSection(section.id)
+      return {
+        sectionId: section.id,
+        measureNo: section.measureNo,
+        method: section.method,
+        stationName: station?.name ?? '未知测站',
+        admissible: admission?.admissible ?? false,
+        verticalCount: admission?.verticalCount ?? 0,
+        pointCount: admission?.pointCount ?? 0,
+        conclusion: admission?.conclusion ?? ''
+      }
+    })
+)
+
 /** 检测结论：按测站汇总测次、最新水位、定线参数与超限点据 */
 const conclusions = ref<
   Array<{
@@ -223,6 +244,48 @@ onMounted(() => {
           </template>
         </el-table-column>
         <el-table-column prop="fitText" label="定线成果" min-width="320" show-overflow-tooltip />
+      </el-table>
+    </el-card>
+
+    <el-card shadow="never" class="gb-panel">
+      <div class="gb-panel-title">
+        <h3>测次成果准入校核</h3>
+        <span class="gb-hint">按测法校验垂线测点与垂线条数，待补测测次暂不出流量</span>
+      </div>
+      <el-table :data="admissionRows" border class="gb-table-compact">
+        <el-table-column label="测站" min-width="130">
+          <template #default="{ row }">{{ row.stationName }}</template>
+        </el-table-column>
+        <el-table-column label="测次号" min-width="140">
+          <template #default="{ row }">{{ row.measureNo }}</template>
+        </el-table-column>
+        <el-table-column label="测法" width="90" align="center">
+          <template #default="{ row }">
+            <el-tag size="small" effect="plain">{{ row.method }}</el-tag>
+          </template>
+        </el-table-column>
+        <el-table-column label="成果状态" width="110" align="center">
+          <template #default="{ row }">
+            <el-tag v-if="row.admissible" type="success" size="small" effect="plain">可出成果</el-tag>
+            <el-tag v-else type="danger" size="small" effect="plain">待补测</el-tag>
+          </template>
+        </el-table-column>
+        <el-table-column label="垂线条数" width="90" align="right">
+          <template #default="{ row }">
+            <span class="gb-mono">{{ row.verticalCount }}</span>
+          </template>
+        </el-table-column>
+        <el-table-column label="测点合计" width="90" align="right">
+          <template #default="{ row }">
+            <span class="gb-mono">{{ row.pointCount }}</span>
+          </template>
+        </el-table-column>
+        <el-table-column label="待补测 / 缺料说明" min-width="320" show-overflow-tooltip>
+          <template #default="{ row }">
+            <span v-if="row.admissible" class="gb-hint">—</span>
+            <span v-else class="page__danger">{{ row.conclusion }}</span>
+          </template>
+        </el-table-column>
       </el-table>
     </el-card>
 

@@ -25,6 +25,9 @@ const sectionStore = useSectionStore()
 const stationId = computed(() => String(route.params.id ?? ''))
 const station = computed(() => stationStore.stationById(stationId.value))
 
+/** 记录编辑前的测法，用于保存后提示结论重算 */
+const editingMethod = ref<MeasureMethod | null>(null)
+
 const dialogVisible = ref(false)
 const editingId = ref<string | null>(null)
 const submitting = ref(false)
@@ -87,6 +90,7 @@ function openCreate(): void {
 
 function openEdit(section: Section): void {
   editingId.value = section.id
+  editingMethod.value = section.method
   form.measureNo = section.measureNo
   form.startDistanceM = section.startDistanceM
   form.stageM = section.stageM
@@ -123,8 +127,13 @@ async function submitForm(): Promise<void> {
       measuredAt: new Date(form.measuredAt).toISOString()
     }
     if (editingId.value) {
+      const methodChanged = editingMethod.value !== null && editingMethod.value !== form.method
       await sectionStore.updateSection(editingId.value, payload)
-      ElMessage.success('测次已更新')
+      if (methodChanged) {
+        ElMessage.success('测次已更新，测法已变更，准入校核结论已按新测法重算')
+      } else {
+        ElMessage.success('测次已更新')
+      }
     } else {
       const created = await sectionStore.createSection(payload)
       sectionStore.selectSection(created.id)
@@ -296,6 +305,17 @@ onMounted(() => {
             <el-button text type="primary" size="small" @click="gotoVerticals(row)">
               {{ sectionStore.sectionVerticalCounts[row.id] ?? 0 }} 条
             </el-button>
+          </template>
+        </el-table-column>
+        <el-table-column label="成果状态" width="120" align="center">
+          <template #default="{ row }">
+            <el-tag
+              v-if="sectionStore.admissionOfSection(row.id)?.admissible"
+              type="success"
+              size="small"
+              effect="plain"
+            >可出成果</el-tag>
+            <el-tag v-else type="danger" size="small" effect="plain">待补测</el-tag>
           </template>
         </el-table-column>
         <el-table-column label="测流时间" min-width="170">

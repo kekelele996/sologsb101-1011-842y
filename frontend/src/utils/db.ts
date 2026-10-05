@@ -130,8 +130,9 @@ interface SeedStationBundle {
 }
 
 /**
- * 播种演示数据：3 个测站 → 4 个断面测次 → 8 条垂线 → 16 个流速测点，
+ * 播种演示数据：3 个测站 → 6 个断面测次 → 13 条垂线 → 31 个流速测点，
  * 并据此生成水位流量关系点据与比测记录，保证父 → 子 → 孙三层链路可点开。
+ * 其中青矶站 2024-09-005 测次（流速仪）含一条仅一点的待补测垂线，用于演示准入校核。
  */
 export async function seedDemoData(): Promise<void> {
   const now = Date.now()
@@ -213,25 +214,42 @@ export async function seedDemoData(): Promise<void> {
           stageM: 4.36,
           method: '流速仪',
           measuredAt: '2024-08-09T06:40:00.000Z'
+        },
+        {
+          id: 'sec_qj_2409',
+          stationId: 'stn_qj02',
+          measureNo: '2024-09-005',
+          startDistanceM: 5.0,
+          stageM: 3.52,
+          method: '流速仪',
+          measuredAt: '2024-09-15T08:20:00.000Z'
         }
       ],
       verticals: [
         { id: 'vrt_qj_1', sectionId: 'sec_qj_2405', no: 1, startDistanceM: 2.4, depthM: 1.1, pointCount: 2, bedNote: '浮标上断面' },
         { id: 'vrt_qj_2', sectionId: 'sec_qj_2405', no: 2, startDistanceM: 6.8, depthM: 1.9, pointCount: 2, bedNote: '浮标中泓' },
+        { id: 'vrt_qj_f3', sectionId: 'sec_qj_2405', no: 3, startDistanceM: 11.2, depthM: 1.4, pointCount: 2, bedNote: '浮标下断面' },
         { id: 'vrt_qj_3', sectionId: 'sec_qj_2408', no: 1, startDistanceM: 3.1, depthM: 1.6, pointCount: 3, bedNote: '涨水期，流速仪三点法' },
-        { id: 'vrt_qj_4', sectionId: 'sec_qj_2408', no: 2, startDistanceM: 7.6, depthM: 2.4, pointCount: 3, bedNote: '主槽，卵石夹砂' }
+        { id: 'vrt_qj_4', sectionId: 'sec_qj_2408', no: 2, startDistanceM: 7.6, depthM: 2.4, pointCount: 3, bedNote: '主槽，卵石夹砂' },
+        { id: 'vrt_qj_5', sectionId: 'sec_qj_2409', no: 1, startDistanceM: 3.0, depthM: 1.5, pointCount: 2, bedNote: '流速仪两点法' },
+        { id: 'vrt_qj_6', sectionId: 'sec_qj_2409', no: 2, startDistanceM: 7.0, depthM: 2.2, pointCount: 1, bedNote: '待补测：仅录入一点' }
       ],
       points: [
         { id: 'pnt_qj_11', verticalId: 'vrt_qj_1', relativeDepth: 0.2, velocityMs: 0.54, weight: 0.5, durationS: 100 },
         { id: 'pnt_qj_12', verticalId: 'vrt_qj_1', relativeDepth: 0.8, velocityMs: 0.42, weight: 0.5, durationS: 100 },
         { id: 'pnt_qj_21', verticalId: 'vrt_qj_2', relativeDepth: 0.2, velocityMs: 0.88, weight: 0.5, durationS: 100 },
         { id: 'pnt_qj_22', verticalId: 'vrt_qj_2', relativeDepth: 0.8, velocityMs: 0.7, weight: 0.5, durationS: 100 },
+        { id: 'pnt_qj_f31', verticalId: 'vrt_qj_f3', relativeDepth: 0.2, velocityMs: 0.72, weight: 0.5, durationS: 100 },
+        { id: 'pnt_qj_f32', verticalId: 'vrt_qj_f3', relativeDepth: 0.8, velocityMs: 0.58, weight: 0.5, durationS: 100 },
         { id: 'pnt_qj_31', verticalId: 'vrt_qj_3', relativeDepth: 0.2, velocityMs: 1.06, weight: 1 / 3, durationS: 100 },
         { id: 'pnt_qj_32', verticalId: 'vrt_qj_3', relativeDepth: 0.6, velocityMs: 0.92, weight: 1 / 3, durationS: 100 },
         { id: 'pnt_qj_33', verticalId: 'vrt_qj_3', relativeDepth: 0.8, velocityMs: 0.78, weight: 1 / 3, durationS: 100 },
         { id: 'pnt_qj_41', verticalId: 'vrt_qj_4', relativeDepth: 0.2, velocityMs: 1.34, weight: 1 / 3, durationS: 100 },
         { id: 'pnt_qj_42', verticalId: 'vrt_qj_4', relativeDepth: 0.6, velocityMs: 1.2, weight: 1 / 3, durationS: 100 },
-        { id: 'pnt_qj_43', verticalId: 'vrt_qj_4', relativeDepth: 0.8, velocityMs: 1.04, weight: 1 / 3, durationS: 100 }
+        { id: 'pnt_qj_43', verticalId: 'vrt_qj_4', relativeDepth: 0.8, velocityMs: 1.04, weight: 1 / 3, durationS: 100 },
+        { id: 'pnt_qj_51', verticalId: 'vrt_qj_5', relativeDepth: 0.2, velocityMs: 0.95, weight: 0.5, durationS: 100 },
+        { id: 'pnt_qj_52', verticalId: 'vrt_qj_5', relativeDepth: 0.8, velocityMs: 0.78, weight: 0.5, durationS: 100 },
+        { id: 'pnt_qj_61', verticalId: 'vrt_qj_6', relativeDepth: 0.6, velocityMs: 0.88, weight: 1, durationS: 100 }
       ]
     },
     {

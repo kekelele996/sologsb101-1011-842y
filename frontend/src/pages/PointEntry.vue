@@ -49,6 +49,9 @@ const meanVelocityMs = computed(() =>
   calcMeanVelocity(points.value.map((point) => ({ velocityMs: point.velocityMs, weight: point.weight })))
 )
 
+/** 测次成果准入校核：按测法校验测点 / 垂线数，并识别待补测垂线 */
+const admission = computed(() => (section.value ? sectionStore.admissionOfSection(section.value.id) : null))
+
 /** 该垂线所在断面的流量成果（用于对比本垂线贡献） */
 const discharge = computed(() => {
   if (!section.value) return null
@@ -275,12 +278,20 @@ onMounted(() => {
         <StatBadge label="部分流量" :value="verticalPartialFlow.toFixed(3)" suffix="m³/s" tone="info" icon="Histogram" />
         <StatBadge
           label="断面流量"
-          :value="discharge ? discharge.flowM3s.toFixed(2) : '—'"
+          :value="admission && admission.admissible && discharge ? discharge.flowM3s.toFixed(2) : '待补测'"
           suffix="m³/s"
-          tone="warning"
+          :tone="admission && admission.admissible ? 'success' : 'danger'"
           icon="Odometer"
         />
       </div>
+
+      <el-alert
+        v-if="admission && !admission.admissible"
+        type="error"
+        show-icon
+        :closable="false"
+        :title="`该测次暂不出流量：${admission.conclusion}`"
+      />
 
       <el-card shadow="never" class="gb-panel">
         <div class="gb-panel-title">
