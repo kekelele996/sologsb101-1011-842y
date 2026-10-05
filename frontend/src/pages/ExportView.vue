@@ -23,7 +23,7 @@ import {
   type BackupPayload
 } from '@/utils/db'
 import {
-  buildBackupPayload,
+  buildAdmissionRows,
   buildConclusionLines,
   countPayload,
   exportBackupJson,
@@ -32,7 +32,7 @@ import {
   remapIds,
   validateBackup
 } from '@/utils/export'
-import { fitPowerCurve } from '@/types/rating'
+import { METHOD_REQUIREMENT_TEXT } from '@/utils/admission'
 
 const ratingStore = useRatingStore()
 const stationStore = useStationStore()
@@ -49,37 +49,35 @@ const exporting = ref(false)
 const compareRows = computed(() => ratingStore.compareRows)
 const overLimitRows = computed(() => ratingStore.overLimitRows)
 
-/** 检测结论：按测站汇总测次、最新水位、定线参数与超限点据 */
-const conclusions = ref<
-  Array<{
-    stationId: string
-    stationName: string
-    river: string
-    sectionCount: number
-    latestStageM: number | null
-    ratingCount: number
-    overLimitCount: number
-    fitText: string
-  }>
->([])
+/**
+ * 基于 store 实时数据的整库快照：测法改动、补测录入后结论与校核自动重算，
+ * 无需手工刷新（原结论随数据变化即时失效）。
+ */
+const livePayload = computed<BackupPayload>(() => ({
+  app: 'gbhydrogaug',
+  dbVersion: DB_VERSION,
+  exportedAt: '',
+  stations: stationStore.stations,
+  sections: sectionStore.sections,
+  verticals: sectionStore.verticals,
+  points: sectionStore.points,
+  ratings: ratingStore.ratings,
+  compares: ratingStore.compares
+}))
+
+/** 检测结论：按测站汇总测次、最新水位、定线参数、超限点据与准入校核 */
+const conclusions = computed(() => buildConclusionLines(livePayload.value, ratingStore.allFits))
+
+/** 测次准入校核清单：逐测次列出状态与待补测垂线 */
+const admissionRows = computed(() => buildAdmissionRows(livePayload.value))
+const pendingAdmissionCount = computed(() => admissionRows.value.filter((row) => !row.ok).length)
+
+const methodRequirementText = computed(() => Object.values(METHOD_REQUIREMENT_TEXT).join('；'))
 
 async function refreshCounts(): Promise<void> {
   counts.value = await countAll()
   lastBackupAt.value = readLastBackupAt()
   stampedVersion.value = readStampedDbVersion()
-}
-
-async function buildConclusions(): Promise<void> {
-  const payload = await buildBackupPayload()
-  const fits = ratingStore.lineNos.map((lineNo) =>
-    fitPowerCurve(
-      payload.ratings
-        .filter((rating) => rating.lineNo === lineNo)
-        .map((rating) => ({ stageM: rating.stageM, flowM3s: rating.flowM3s })),
-      lineNo
-    )
-  )
-  conclusions.value = buildConclusionLines(payload, fits)
 }
 
 async function handleExport(): Promise<void> {
@@ -125,7 +123,6 @@ async function handleImport(): Promise<void> {
     )
     await importBackup(payload, overwriteOnImport.value)
     await refreshCounts()
-    await buildConclusions()
     ElMessage.success('导入完成')
   } finally {
     importing.value = false
@@ -144,14 +141,12 @@ async function handleReset(): Promise<void> {
   }
   await resetDatabase()
   await refreshCounts()
-  await buildConclusions()
   ElMessage.success('本地数据已重置为演示数据')
 }
 
 async function refreshAll(): Promise<void> {
   await ratingStore.rebuildCompares(ratingStore.activeLineNo)
   await refreshCounts()
-  await buildConclusions()
   ElMessage.success('已重新定线并刷新结构版本信息')
 }
 
@@ -181,6 +176,13 @@ onMounted(() => {
       <StatBadge label="测站" :value="counts.stations ?? 0" suffix="站" icon="Odometer" />
       <StatBadge label="断面测次" :value="counts.sections ?? 0" suffix="次" icon="Files" tone="info" />
       <StatBadge label="流速测点" :value="counts.points ?? 0" suffix="点" icon="DataLine" tone="success" />
+      <StatBadge
+        label="待补测测次"
+        :value="pendingAdmissionCount"
+        suffix="次"
+        :tone="pendingAdmissionCount > 0 ? 'danger' : 'success'"
+        icon="WarningFilled"
+      />
       <StatBadge
         label="比测合格率"
         :value="ratingStore.fitQuality.qualifyRatePct"
@@ -222,7 +224,57 @@ onMounted(() => {
             <span class="gb-mono" :class="{ 'page__danger': row.overLimitCount > 0 }">{{ row.overLimitCount }}</span>
           </template>
         </el-table-column>
+        <el-table-column label="准入校核" min-width="180" show-overflow-tooltip>
+          <template #default="{ row }">
+            <span :class="{ 'page__warn-text': row.admissionText.includes('待补测') }">{{ row.admissionText }}</span>
+          </template>
+        </el-table-column>
         <el-table-column prop="fitText" label="定线成果" min-width="320" show-overflow-tooltip />
+      </el-table>
+    </el-card>
+
+    <el-card shadow="never" class="gb-panel">
+      <div class="gb-panel-title">
+        <h3>
+          测次准入校核
+          <el-tag v-if="pendingAdmissionCount > 0" type="warning" size="small" effect="plain">
+            <el-icon><Warning /></el-icon> {{ pendingAdmissionCount }} 次待补测
+          </el-tag>
+        </h3>
+        <span class="gb-hint">{{ methodRequirementText }}；水深缺失或流速全为零的垂线按待补测，该测次暂不出流量成果</span>
+      </div>
+
+      <EmptyPanel
+        v-if="admissionRows.length === 0"
+        title="还没有断面测次"
+        description="在测站台账中新建测站与测次后，这里会按测法逐次校核是否具备出流量成果的条件。"
+        compact
+      />
+
+      <el-table v-else :data="admissionRows" border stripe class="gb-table-compact">
+        <el-table-column prop="stationName" label="测站" min-width="120" />
+        <el-table-column prop="measureNo" label="测次号" min-width="120" />
+        <el-table-column label="测法" width="100" align="center">
+          <template #default="{ row }">
+            <el-tag
+              size="small"
+              :type="row.method === 'ADCP' ? 'success' : row.method === '浮标' ? 'warning' : 'primary'"
+              effect="plain"
+            >
+              {{ row.method }}
+            </el-tag>
+          </template>
+        </el-table-column>
+        <el-table-column label="状态" width="110" align="center">
+          <template #default="{ row }">
+            <el-tag size="small" :type="row.ok ? 'success' : 'warning'" effect="plain">{{ row.status }}</el-tag>
+          </template>
+        </el-table-column>
+        <el-table-column label="待补测明细（缺哪条垂线）" min-width="340" show-overflow-tooltip>
+          <template #default="{ row }">
+            <span :class="{ 'page__warn-text': !row.ok }">{{ row.pendingText }}</span>
+          </template>
+        </el-table-column>
       </el-table>
     </el-card>
 
@@ -372,5 +424,9 @@ onMounted(() => {
 .page__danger {
   color: #c0392b;
   font-weight: 700;
+}
+
+.page__warn-text {
+  color: #b26a00;
 }
 </style>

@@ -40,11 +40,22 @@ docker compose up -d --build      # 修改代码后重新构建
 | 路由 | 页面 | 消费模型 | 主要交互 |
 | --- | --- | --- | --- |
 | `/stations` | 测站台账 | Station、Section、Rating | 新建/编辑/删除测站，按河名与集水面积分档筛选，卡片回显测次数、最新水位与比测合格率 |
-| `/stations/:id/sections` | 断面测次列表与测法标记 | Section、Station | 新增测次（测次号、起点距、水位、流速仪/浮标/ADCP），水位筛选，回显当前水位与水位变幅 |
-| `/sections/:id/verticals` | 垂线布设与测深 | Vertical、Section | 起点距排序校验（重复即时告警）、按测点数自动生成测点行、部分面积法断面流量成果 |
+| `/stations/:id/sections` | 断面测次列表与测法标记 | Section、Station | 新增测次（测次号、起点距、水位、流速仪/浮标/ADCP），水位筛选，回显当前水位与水位变幅，逐测次回显准入校核状态 |
+| `/sections/:id/verticals` | 垂线布设与测深 | Vertical、Section | 起点距排序校验（重复即时告警）、按测点数自动生成测点行、按测法准入校核、部分面积法断面流量成果 |
 | `/verticals/:id/points` | 流速测点录入 | Point、Vertical | 逐点录入相对水深与流速、批量粘贴导入、批量改写流速、权重归一、垂线流速分布图 |
 | `/ratings` | 水位流量关系点据与定线 | Rating、Compare | 幂函数定线 Q=a(H-H0)^b（自动搜索基线并给出 R²、平均/最大残差）、超限点挂红、关系曲线绘制 |
-| `/export` | 比测偏差分析与导出 | 全部模型 | 按测站出检测结论、比测偏差分析清单、全量 JSON 导入导出、清空重建演示数据 |
+| `/export` | 比测偏差分析与导出 | 全部模型 | 按测站出检测结论、测次准入校核清单（写清缺哪条垂线）、比测偏差分析清单、全量 JSON 导入导出、清空重建演示数据 |
+
+### 测次准入校核（按测法）
+
+测次不再「录完就出流量」，须先通过按测法的准入校核（`utils/admission.ts`）：
+
+- **流速仪**：每条垂线应有 2 个及以上流速测点
+- **浮标**：应有 3 条及以上垂线，且每条垂线均有测点
+- **ADCP**：每条垂线有 1 个测点即可
+- **通用**：水深缺失或流速全为零的垂线按待补测处理
+
+只要存在待补测垂线（或测法级要求未满足），该测次暂不出流量成果；垂线列表逐行标注「通过 / 待补测」并给出缺口原因，导出页的「测次准入校核」清单写清缺哪条垂线。校核基于实时数据计算：补齐测深测点后自动转为可出成果，改动测法后原结论即时失效并按新测法重算。
 
 带 `:id` 的层级路由在直接深链访问时同样可用：若 IndexedDB 中查不到该 id，页面渲染 `<RouteMissingPanel>` 友好空态（含返回入口与可用 id 快捷跳转），不会白屏。
 
@@ -78,7 +89,7 @@ sologsb101-1011/
         ├── pages/              # StationList / SectionList / VerticalBoard / PointEntry / RatingChart / ExportView
         ├── router/index.ts     # 路由表（路径与提示词逐字一致）
         ├── styles/main.css
-        └── utils/              # flow.ts（流量计算）/ db.ts（Dexie 封装）/ export.ts（导入导出）
+        └── utils/              # flow.ts（流量计算）/ admission.ts（测次准入校核）/ db.ts（Dexie 封装）/ export.ts（导入导出）
 ```
 
 ## 五、本地开发

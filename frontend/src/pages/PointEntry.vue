@@ -16,6 +16,7 @@ import { useSectionStore } from '@/stores/sectionStore'
 import { parsePointPaste } from '@/types/point'
 import type { Point } from '@/types/point'
 import { calcMeanVelocity, calcSectionDischarge, velocityFromRevolutions } from '@/utils/flow'
+import { checkSectionAdmission } from '@/utils/admission'
 import { initDatabase } from '@/utils/db'
 
 const route = useRoute()
@@ -64,6 +65,15 @@ const discharge = computed(() => {
   })
   return calcSectionDischarge(rows)
 })
+
+/** 所在测次的准入校核：未通过时该测次暂不出流量成果 */
+const admission = computed(() =>
+  section.value
+    ? checkSectionAdmission(section.value.method, sectionStore.verticalsOfSection(section.value.id), (id) =>
+        sectionStore.pointsOfVertical(id)
+      )
+    : null
+)
 
 /** 本垂线的部分流量 */
 const verticalPartialFlow = computed(() => {
@@ -274,6 +284,15 @@ onMounted(() => {
         <StatBadge label="垂线平均流速" :value="meanVelocityMs.toFixed(3)" suffix="m/s" tone="success" icon="TrendCharts" />
         <StatBadge label="部分流量" :value="verticalPartialFlow.toFixed(3)" suffix="m³/s" tone="info" icon="Histogram" />
         <StatBadge
+          v-if="admission && !admission.ok"
+          label="断面流量"
+          value="待补测"
+          suffix="暂不出成果"
+          tone="danger"
+          icon="WarningFilled"
+        />
+        <StatBadge
+          v-else
           label="断面流量"
           :value="discharge ? discharge.flowM3s.toFixed(2) : '—'"
           suffix="m³/s"
@@ -281,6 +300,15 @@ onMounted(() => {
           icon="Odometer"
         />
       </div>
+
+      <el-alert
+        v-if="admission && !admission.ok"
+        type="warning"
+        show-icon
+        :closable="false"
+        :title="`所在测次准入校核未通过（${section?.method}法），暂不出流量成果`"
+        :description="`待补测明细：${admission.summary}`"
+      />
 
       <el-card shadow="never" class="gb-panel">
         <div class="gb-panel-title">

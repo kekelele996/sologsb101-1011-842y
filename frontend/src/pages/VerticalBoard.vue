@@ -15,6 +15,7 @@ import { useStationStore } from '@/stores/stationStore'
 import { useSectionStore } from '@/stores/sectionStore'
 import { buildRelativeDepths, type Vertical } from '@/types/vertical'
 import { calcMeanVelocity, calcSectionDischarge } from '@/utils/flow'
+import { checkSectionAdmission, METHOD_REQUIREMENT_TEXT } from '@/utils/admission'
 import { initDatabase } from '@/utils/db'
 
 const route = useRoute()
@@ -61,6 +62,22 @@ const discharge = computed(() =>
     }))
   )
 )
+
+/** 测次准入校核：按测法判定是否具备出流量成果的条件（数据补齐后自动转为通过） */
+const admission = computed(() =>
+  section.value
+    ? checkSectionAdmission(section.value.method, verticals.value, (id) => sectionStore.pointsOfVertical(id))
+    : null
+)
+
+/** 垂线 id → 校核结论，供表格逐行回显 */
+const admissionByVerticalId = computed(() => {
+  const map: Record<string, { ok: boolean; reasons: string[] }> = {}
+  admission.value?.verticals.forEach((row) => {
+    map[row.id] = { ok: row.ok, reasons: row.reasons }
+  })
+  return map
+})
 
 const stats = computed(() => ({
   verticalCount: verticals.value.length,
@@ -213,7 +230,8 @@ onMounted(() => {
             <el-tag size="small" type="info" effect="plain">水位 {{ section.stageM.toFixed(2) }} m</el-tag>
           </h2>
           <p class="gb-hint">
-            录入起点距与水深，测点数决定按相对水深自动生成的测点行（1/2/3/5 点法有预设分布）。垂线按起点距升序参与流量计算。
+            录入起点距与水深，测点数决定按相对水深自动生成的测点行（1/2/3/5 点法有预设分布）。垂线按起点距升序参与流量计算。<br />
+            准入校核（{{ section.method }}）：{{ METHOD_REQUIREMENT_TEXT[section.method] }}；水深缺失或流速全为零的垂线按待补测处理，存在待补测垂线时该测次暂不出流量成果。
           </p>
         </div>
         <el-button type="primary" :icon="Plus" @click="openCreate">新增垂线</el-button>
@@ -223,8 +241,32 @@ onMounted(() => {
         <StatBadge label="垂线条数" :value="stats.verticalCount" suffix="条" icon="Histogram" />
         <StatBadge label="测点合计" :value="stats.pointCount" suffix="点" tone="info" icon="DataLine" />
         <StatBadge label="最大水深" :value="stats.maxDepthM.toFixed(2)" suffix="m" tone="warning" icon="Odometer" />
-        <StatBadge label="断面流量" :value="discharge.flowM3s.toFixed(2)" suffix="m³/s" tone="success" icon="TrendCharts" />
+        <StatBadge
+          v-if="admission && !admission.ok"
+          label="断面流量"
+          value="待补测"
+          suffix="暂不出成果"
+          tone="danger"
+          icon="WarningFilled"
+        />
+        <StatBadge
+          v-else
+          label="断面流量"
+          :value="discharge.flowM3s.toFixed(2)"
+          suffix="m³/s"
+          tone="success"
+          icon="TrendCharts"
+        />
       </div>
+
+      <el-alert
+        v-if="admission && !admission.ok"
+        type="warning"
+        show-icon
+        :closable="false"
+        :title="`准入校核未通过（${section.method}法），该测次暂不出流量成果`"
+        :description="`待补测明细：${admission.summary}。补齐垂线测深与测点后自动转为可出成果。`"
+      />
 
       <el-alert
         v-if="conflicts.length > 0"
@@ -276,6 +318,24 @@ onMounted(() => {
             <span class="gb-mono">{{ (row.vertical.depthM * row.meanVelocityMs).toFixed(3) }}</span>
           </template>
         </el-table-column>
+        <el-table-column label="准入校核" width="150" align="center">
+          <template #default="{ row }">
+            <el-tooltip
+              :content="admissionByVerticalId[row.vertical.id]?.ok === false
+                ? `待补测：${admissionByVerticalId[row.vertical.id].reasons.join('、')}`
+                : '校核通过'"
+              placement="top"
+            >
+              <el-tag
+                size="small"
+                :type="admissionByVerticalId[row.vertical.id]?.ok === false ? 'warning' : 'success'"
+                effect="plain"
+              >
+                {{ admissionByVerticalId[row.vertical.id]?.ok === false ? '待补测' : '通过' }}
+              </el-tag>
+            </el-tooltip>
+          </template>
+        </el-table-column>
         <el-table-column prop="vertical.bedNote" label="河床质 / 备注" min-width="170" show-overflow-tooltip />
         <el-table-column label="操作" width="290" fixed="right">
           <template #default="{ row }">
@@ -287,7 +347,7 @@ onMounted(() => {
         </el-table-column>
       </el-table>
 
-      <div v-if="verticalRows.length > 0" class="gb-panel">
+      <div v-if="verticalRows.length > 0 && admission?.ok" class="gb-panel">
         <div class="gb-panel-title">
           <h3>部分面积法断面流量成果</h3>
           <span class="gb-hint">水面宽 {{ discharge.widthM }} m · 断面面积 {{ discharge.areaM2 }} m² · 平均流速 {{ discharge.meanVelocityMs }} m/s</span>
@@ -312,6 +372,22 @@ onMounted(() => {
             </template>
           </el-table-column>
         </el-table>
+      </div>
+
+      <div v-else-if="verticalRows.length > 0 && admission && !admission.ok" class="gb-panel">
+        <div class="gb-panel-title">
+          <h3>断面流量成果 · 待补测</h3>
+          <span class="gb-hint">{{ METHOD_REQUIREMENT_TEXT[section.method] }}</span>
+        </div>
+        <p class="gb-hint">
+          该测次准入校核未通过，暂不出流量成果。需补测的垂线与缺口如下，补齐后自动转为可出成果：
+        </p>
+        <ul class="page__pending-list">
+          <li v-for="reason in admission.sectionReasons" :key="reason" class="gb-mono">{{ reason }}</li>
+          <li v-for="row in admission.pending" :key="row.id" class="gb-mono">
+            垂线 {{ row.no }}：{{ row.reasons.join('、') }}
+          </li>
+        </ul>
       </div>
     </template>
 
@@ -385,5 +461,13 @@ onMounted(() => {
   margin-left: 4px;
   color: #d68910;
   vertical-align: middle;
+}
+
+.page__pending-list {
+  margin: 8px 0 0;
+  padding-left: 20px;
+  font-size: 13px;
+  line-height: 1.9;
+  color: #b26a00;
 }
 </style>

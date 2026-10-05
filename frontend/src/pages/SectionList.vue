@@ -15,6 +15,7 @@ import RouteMissingPanel from '@/components/common/RouteMissingPanel.vue'
 import { useStationStore } from '@/stores/stationStore'
 import { useSectionStore } from '@/stores/sectionStore'
 import { MEASURE_METHODS, type MeasureMethod, type Section } from '@/types/section'
+import { checkSectionAdmission, type SectionAdmission } from '@/utils/admission'
 import { initDatabase } from '@/utils/db'
 
 const route = useRoute()
@@ -52,6 +53,19 @@ const filterModel = computed<FilterModel>(() => ({
   methods: sectionStore.filter.methods,
   minStageM: sectionStore.filter.minStageM
 }))
+
+/** 测次 id → 准入校核结论：按测法实时重算，测法改动后原结论自动失效 */
+const admissionBySectionId = computed<Record<string, SectionAdmission>>(() => {
+  const map: Record<string, SectionAdmission> = {}
+  sectionStore.sectionsOfStation(stationId.value).forEach((section) => {
+    map[section.id] = checkSectionAdmission(
+      section.method,
+      sectionStore.verticalsOfSection(section.id),
+      (verticalId) => sectionStore.pointsOfVertical(verticalId)
+    )
+  })
+  return map
+})
 
 const stats = computed(() => {
   const list = sectionStore.sectionsOfStation(stationId.value)
@@ -123,8 +137,13 @@ async function submitForm(): Promise<void> {
       measuredAt: new Date(form.measuredAt).toISOString()
     }
     if (editingId.value) {
+      const previous = sectionStore.sectionById(editingId.value)
       await sectionStore.updateSection(editingId.value, payload)
-      ElMessage.success('测次已更新')
+      if (previous && previous.method !== payload.method) {
+        ElMessage.warning(`测法已由「${previous.method}」改为「${payload.method}」，原校核结论失效，已按新测法重新校核`)
+      } else {
+        ElMessage.success('测次已更新')
+      }
     } else {
       const created = await sectionStore.createSection(payload)
       sectionStore.selectSection(created.id)
@@ -298,6 +317,22 @@ onMounted(() => {
             </el-button>
           </template>
         </el-table-column>
+        <el-table-column label="准入校核" width="120" align="center">
+          <template #default="{ row }">
+            <el-tooltip
+              :content="admissionBySectionId[row.id]?.ok ? '校核通过，可出流量成果' : `待补测：${admissionBySectionId[row.id]?.summary ?? ''}`"
+              placement="top"
+            >
+              <el-tag
+                size="small"
+                :type="admissionBySectionId[row.id]?.ok ? 'success' : 'warning'"
+                effect="plain"
+              >
+                {{ admissionBySectionId[row.id]?.status ?? '待补测' }}
+              </el-tag>
+            </el-tooltip>
+          </template>
+        </el-table-column>
         <el-table-column label="测流时间" min-width="170">
           <template #default="{ row }">
             <span class="gb-mono">{{ new Date(row.measuredAt).toLocaleString('zh-CN') }}</span>
@@ -330,6 +365,9 @@ onMounted(() => {
           <el-radio-group v-model="form.method">
             <el-radio-button v-for="method in MEASURE_METHODS" :key="method" :value="method">{{ method }}</el-radio-button>
           </el-radio-group>
+          <p v-if="editingId" class="gb-hint">
+            改动测法后原准入校核结论失效，将按新测法重新校核（流速仪每垂线 ≥2 测点；浮标 ≥3 条垂线且每条有测点；ADCP 每垂线 ≥1 测点）。
+          </p>
         </el-form-item>
         <el-form-item label="水位" required>
           <el-input-number v-model="form.stageM" :min="-50" :max="200" :step="0.01" :precision="2" controls-position="right" />

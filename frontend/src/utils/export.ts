@@ -11,6 +11,8 @@ import {
   stampBackupTime,
   type BackupPayload
 } from '@/utils/db'
+import { checkSectionAdmission, type AdmissionStatus } from '@/utils/admission'
+import type { MeasureMethod } from '@/types/section'
 
 /** 备份集合键名 */
 export const BACKUP_KEYS = ['stations', 'sections', 'verticals', 'points', 'ratings', 'compares'] as const
@@ -182,12 +184,60 @@ export interface ConclusionLine {
   ratingCount: number
   overLimitCount: number
   fitText: string
+  /** 准入校核汇总：可出成果次数与待补测测次号 */
+  admissionText: string
+}
+
+/** 测次准入校核行：导出页「测次准入校核」清单，写清缺哪条垂线 */
+export interface AdmissionRow {
+  sectionId: string
+  stationId: string
+  stationName: string
+  measureNo: string
+  method: MeasureMethod
+  ok: boolean
+  status: AdmissionStatus
+  /** 待补测明细：测法级原因 + 逐垂线缺口；通过时为 '—' */
+  pendingText: string
+}
+
+/**
+ * 逐测次执行准入校核（流速仪 / 浮标 / ADCP 规则见 utils/admission.ts）。
+ * 基于传入快照实时计算：补齐测点或改动测法后重算即得新结论。
+ */
+export function buildAdmissionRows(payload: BackupPayload): AdmissionRow[] {
+  const stationNameOf = (stationId: string): string =>
+    payload.stations.find((station) => station.id === stationId)?.name ?? '未知测站'
+  return payload.sections
+    .map((section) => {
+      const verticals = payload.verticals
+        .filter((vertical) => vertical.sectionId === section.id)
+        .sort((a, b) => a.startDistanceM - b.startDistanceM)
+      const admission = checkSectionAdmission(section.method, verticals, (verticalId) =>
+        payload.points.filter((point) => point.verticalId === verticalId)
+      )
+      return {
+        sectionId: section.id,
+        stationId: section.stationId,
+        stationName: stationNameOf(section.stationId),
+        measureNo: section.measureNo,
+        method: section.method,
+        ok: admission.ok,
+        status: admission.status,
+        pendingText: admission.ok ? '—' : admission.summary
+      }
+    })
+    .sort(
+      (a, b) =>
+        a.stationName.localeCompare(b.stationName, 'zh-CN') || a.measureNo.localeCompare(b.measureNo)
+    )
 }
 
 export function buildConclusionLines(
   payload: BackupPayload,
   fits: Array<{ lineNo: string; valid: boolean; a: number; b: number; h0: number; meanResidualPct: number; sampleCount: number }>
 ): ConclusionLine[] {
+  const admissionRows = buildAdmissionRows(payload)
   return payload.stations.map((station) => {
     const sections = payload.sections.filter((section) => section.stationId === station.id)
     const latest = sections.reduce<number | null>((acc, section) => {
@@ -205,6 +255,14 @@ export function buildConclusionLines(
       if (!fit || !fit.valid) return `${lineNo} 线未定线`
       return `${lineNo} 线 Q=${fit.a}·(H-${fit.h0})^${fit.b}，残差 ${fit.meanResidualPct}%（${fit.sampleCount} 点）`
     })
+    const stationAdmissions = admissionRows.filter((row) => row.stationId === station.id)
+    const pendingNos = stationAdmissions.filter((row) => !row.ok).map((row) => row.measureNo)
+    const admissionText =
+      stationAdmissions.length === 0
+        ? '暂无测次'
+        : pendingNos.length === 0
+          ? `全部可出成果（${stationAdmissions.length} 次）`
+          : `待补测 ${pendingNos.length}/${stationAdmissions.length} 次：${pendingNos.join('、')}`
     return {
       stationId: station.id,
       stationName: station.name,
@@ -213,7 +271,8 @@ export function buildConclusionLines(
       latestStageM: latest,
       ratingCount: ratings.length,
       overLimitCount,
-      fitText: fitParts.length > 0 ? fitParts.join('；') : '暂无关系点据'
+      fitText: fitParts.length > 0 ? fitParts.join('；') : '暂无关系点据',
+      admissionText
     }
   })
 }
